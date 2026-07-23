@@ -771,24 +771,23 @@ with tab_run:
             _dist_colors = {"Priori": DRUM["text_secondary"], "Posteriori": DRUM["blue_primary"]}
             color_domain = [d for d in ["Priori", "Posteriori"] if d in show_dists]
             color_range = [_dist_colors[d] for d in color_domain]
-            # A tabela original tem ~"intervals" pontos (200 por padrao) -- desenhar uma
-            # barra por ponto faz barras vizinhas se tocarem/sobrepuserem (a largura
-            # automatica do Vega-Lite para tantos pontos nao deixa espaco entre elas),
-            # o que com opacidade cria um efeito de "duas tonalidades" mesmo dentro de
-            # uma UNICA serie -- nao era a Priori vazando, era a propria serie se
-            # duplicando visualmente. Reagrupamos em ~25 faixas (histograma de verdade)
-            # e usamos xOffset para desenhar Priori/Posteriori lado a lado em vez de
-            # sobrepostas, evitando tambem a mistura visual quando as duas aparecem.
+            # A tabela original tem ~"intervals" pontos (200 por padrao) -- reagrupamos
+            # em n_bins faixas (histograma de verdade) sobre o eixo X, sempre fixo em
+            # [0,1]. Priori e posteriori sao avaliadas de forma INDEPENDENTE: cada uma
+            # vira seu proprio painel (facet por Distribuição x Ambiente), cada painel
+            # com escala Y propria (resolve_scale independente) -- assim a altura de
+            # uma nao fica comprimida/distorcida pela escala da outra. As bordas das
+            # faixas no eixo X continuam as mesmas (0 a 1, n_bins fixo) para as duas,
+            # entao a posicao horizontal continua comparavel entre os paineis, so a
+            # altura (escala Y) que passa a ser independente por distribuicao.
             #
-            # IMPORTANTE (bug corrigido): a tabela bruta do modelo tem ~200 pontos de
-            # "pdf" que somam exatamente 1 por construcao (cada ponto ja e uma massa
-            # de probabilidade normalizada, ver PosteriorAproximation.cpp/reducePrior).
-            # Ao reagrupar esses ~200 pontos em ~25 faixas para o histograma, é preciso
-            # SOMAR (nao tirar a media) os pontos de cada faixa nova -- do contrario a
-            # soma das barras exibidas deixa de ser 1 (confirmado numericamente: com
-            # media, a soma variava de 0.03 a 0.86 dependendo do ambiente). A CDF, por
-            # ser cumulativa, usa o MAXIMO de cada faixa (o ultimo valor acumulado
-            # dentro dela), nao a soma.
+            # IMPORTANTE (bug corrigido antes): a tabela bruta do modelo tem ~200
+            # pontos de "pdf" que somam exatamente 1 por construcao (cada ponto ja e
+            # uma massa de probabilidade normalizada, ver
+            # PosteriorAproximation.cpp/reducePrior). Ao reagrupar esses ~200 pontos em
+            # n_bins faixas, e preciso SOMAR (nao tirar a media) os pontos de cada
+            # faixa nova -- do contrario a soma das barras exibidas deixa de ser 1. A
+            # CDF, por ser cumulativa, usa o MAXIMO de cada faixa, nao a soma.
             agg_fn = "sum" if value_type == "PDF" else "max"
             chart = (
                 alt.Chart(chart_df)
@@ -804,20 +803,21 @@ with tab_run:
                         title="Confiabilidade no tempo de missão",
                         scale=alt.Scale(domain=[0, 1]),
                     ),
-                    xOffset=alt.XOffset("Distribuição:N", sort=color_domain),
-                    # Y dinamico (auto-scale por painel, via resolve_scale abaixo) --
-                    # travar em 0-100% deixava a PDF ilegivel, ja que a massa de
-                    # probabilidade por faixa raramente chega perto de 100% (ao
-                    # contrario da CDF, que de fato vai ate 100%). Valores exibidos
+                    # Y dinamico (auto-scale por painel, independente por ambiente E
+                    # por distribuicao -- ver resolve_scale abaixo). Valores exibidos
                     # como frequencia relativa (0 a 1), sem formatacao percentual.
                     y=alt.Y(f"{agg_fn}(Valor):Q", title=value_axis_title),
                     color=alt.Color(
                         "Distribuição:N",
                         scale=alt.Scale(domain=color_domain, range=color_range),
+                        legend=None,
                     ),
                 )
-                .properties(width=200, height=200)
-                .facet(column=alt.Column("Ambiente:N", title=None), columns=3)
+                .properties(width=200, height=140)
+                .facet(
+                    row=alt.Row("Distribuição:N", title=None, sort=color_domain),
+                    column=alt.Column("Ambiente:N", title=None),
+                )
                 .resolve_scale(y="independent")
             )
             # "key" muda a cada combinacao de ambiente/distribuicao/mostrar -- sem
