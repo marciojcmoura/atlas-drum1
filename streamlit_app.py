@@ -743,7 +743,7 @@ with tab_run:
                     chart_rows.append(
                         {
                             "Ambiente": f"Ambiente {env_idx}",
-                            "Confiabilidade": r["value"],
+                            "Confiabilidade (%)": r["value"] * 100.0,
                             "Valor": r[value_col],
                             "Distribuição": dist_label,
                         }
@@ -773,9 +773,10 @@ with tab_run:
                 .mark_bar()
                 .encode(
                     x=alt.X(
-                        "Confiabilidade:Q",
+                        "Confiabilidade (%):Q",
                         bin=alt.Bin(maxbins=25),
-                        title="Confiabilidade no tempo de missão",
+                        title="Confiabilidade no tempo de missão (%)",
+                        axis=alt.Axis(format=".0f"),
                     ),
                     xOffset=alt.XOffset("Distribuição:N", sort=color_domain),
                     y=alt.Y("mean(Valor):Q", title=value_axis_title),
