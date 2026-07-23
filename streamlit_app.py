@@ -760,12 +760,25 @@ with tab_run:
             _dist_colors = {"Priori": DRUM["text_secondary"], "Posteriori": DRUM["blue_primary"]}
             color_domain = [d for d in ["Priori", "Posteriori"] if d in show_dists]
             color_range = [_dist_colors[d] for d in color_domain]
+            # A tabela original tem ~"intervals" pontos (200 por padrao) -- desenhar uma
+            # barra por ponto faz barras vizinhas se tocarem/sobrepuserem (a largura
+            # automatica do Vega-Lite para tantos pontos nao deixa espaco entre elas),
+            # o que com opacidade cria um efeito de "duas tonalidades" mesmo dentro de
+            # uma UNICA serie -- nao era a Priori vazando, era a propria serie se
+            # duplicando visualmente. Reagrupamos em ~25 faixas (histograma de verdade)
+            # e usamos xOffset para desenhar Priori/Posteriori lado a lado em vez de
+            # sobrepostas, evitando tambem a mistura visual quando as duas aparecem.
             chart = (
                 alt.Chart(chart_df)
-                .mark_bar(opacity=0.65)
+                .mark_bar()
                 .encode(
-                    x=alt.X("Confiabilidade:Q", title="Confiabilidade no tempo de missão"),
-                    y=alt.Y("Valor:Q", title=value_axis_title),
+                    x=alt.X(
+                        "Confiabilidade:Q",
+                        bin=alt.Bin(maxbins=25),
+                        title="Confiabilidade no tempo de missão",
+                    ),
+                    xOffset=alt.XOffset("Distribuição:N", sort=color_domain),
+                    y=alt.Y("mean(Valor):Q", title=value_axis_title),
                     color=alt.Color(
                         "Distribuição:N",
                         scale=alt.Scale(domain=color_domain, range=color_range),
