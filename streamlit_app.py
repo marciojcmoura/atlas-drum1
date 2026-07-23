@@ -757,6 +757,7 @@ with tab_run:
                             "Confiabilidade": r["value"],
                             "Valor": r[value_col],
                             "Distribuição": dist_label,
+                            "Painel": f"Ambiente {env_idx} · {dist_label}",
                         }
                     )
 
@@ -774,12 +775,21 @@ with tab_run:
             # A tabela original tem ~"intervals" pontos (200 por padrao) -- reagrupamos
             # em n_bins faixas (histograma de verdade) sobre o eixo X, sempre fixo em
             # [0,1]. Priori e posteriori sao avaliadas de forma INDEPENDENTE: cada uma
-            # vira seu proprio painel (facet por Distribuição x Ambiente), cada painel
-            # com escala Y propria (resolve_scale independente) -- assim a altura de
-            # uma nao fica comprimida/distorcida pela escala da outra. As bordas das
-            # faixas no eixo X continuam as mesmas (0 a 1, n_bins fixo) para as duas,
-            # entao a posicao horizontal continua comparavel entre os paineis, so a
-            # altura (escala Y) que passa a ser independente por distribuicao.
+            # vira seu proprio painel, cada painel com escala Y propria (resolve_scale
+            # independente) -- assim a altura de uma nao fica comprimida/distorcida
+            # pela escala da outra. As bordas das faixas no eixo X continuam as mesmas
+            # (0 a 1, n_bins fixo) para as duas, entao a posicao horizontal continua
+            # comparavel entre os paineis, so a altura (escala Y) que e independente.
+            #
+            # NOTA: os paineis usam uma UNICA faceta (campo "Painel" = distribuicao +
+            # ambiente combinados), nao "row=" e "column=" simultaneos -- testado e
+            # confirmado que combinar as duas facetas ao mesmo tempo quebra a
+            # renderizacao das barras especificamente dentro do componente Vega-Lite
+            # do Streamlit (o grafico ficava com os eixos certos mas sem nenhuma barra
+            # visivel), mesmo a especificacao sendo valida (renderiza normalmente fora
+            # do Streamlit, via vl-convert). Uma faceta so, com "columns=" para
+            # controlar o numero de colunas por linha, e o padrao comprovadamente
+            # seguro neste ambiente.
             #
             # IMPORTANTE (bug corrigido antes): a tabela bruta do modelo tem ~200
             # pontos de "pdf" que somam exatamente 1 por construcao (cada ponto ja e
@@ -789,6 +799,12 @@ with tab_run:
             # faixa nova -- do contrario a soma das barras exibidas deixa de ser 1. A
             # CDF, por ser cumulativa, usa o MAXIMO de cada faixa, nao a soma.
             agg_fn = "sum" if value_type == "PDF" else "max"
+            # Ordem ambiente-major (uma linha por ambiente, priori/posteriori como
+            # colunas dessa linha) -- "columns=len(show_dists)" e o que faz o wrap da
+            # faceta respeitar essa agrupacao (testado: usar len(env_choices) aqui
+            # produzia um wrap incorreto sempre que o numero de ambientes e de
+            # distribuicoes selecionadas era diferente).
+            painel_sort = [f"Ambiente {e} · {d}" for e in env_choices for d in color_domain]
             chart = (
                 alt.Chart(chart_df)
                 .mark_bar()
@@ -815,8 +831,8 @@ with tab_run:
                 )
                 .properties(width=200, height=140)
                 .facet(
-                    row=alt.Row("Distribuição:N", title=None, sort=color_domain),
-                    column=alt.Column("Ambiente:N", title=None),
+                    facet=alt.Facet("Painel:N", title=None, sort=painel_sort),
+                    columns=len(show_dists),
                 )
                 .resolve_scale(y="independent")
             )
