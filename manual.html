@@ -148,8 +148,13 @@ antes de inserir dados próprios.</p>
 <li>Compila o motor de cálculo em C++ (só na primeira vez; as execuções seguintes reaproveitam o binário já compilado).</li>
 <li>Monta o arquivo de entrada a partir dos parâmetros e do plano de teste.</li>
 <li>Roda a cadeia de Metropolis-Hastings conjunta sobre os K ambientes.</li>
-<li>Mostra, por ambiente: a confiabilidade a priori (média) e a posteriori (média, mediana e moda), além da distribuição completa (CDF) comparando priori vs. posteriori.</li>
+<li>Mostra, por ambiente: a confiabilidade a priori (média) e a posteriori (média, mediana e moda), além da distribuição completa da confiabilidade, priori vs. posteriori.</li>
 </ol>
+<p>O gráfico de distribuição tem três controles: <strong>Ambientes</strong> (multi-seleção — vários
+ambientes lado a lado, um painel de barras por ambiente), <strong>Distribuição</strong> (alternar
+entre PDF, a densidade, e CDF, a probabilidade acumulada) e <strong>Mostrar</strong>
+(escolher priori, posteriori, ou ambas as curvas no mesmo painel). Cada painel usa barras
+(cinza = priori, azul = posteriori) em vez de linhas.</p>
 <p>O botão <strong>"Baixar saída completa"</strong> exporta o resultado bruto (tabelas de
 densidade/CDF de taxa de falha e confiabilidade, priori e posteriori, para cada
 ambiente) em texto plano.</p>

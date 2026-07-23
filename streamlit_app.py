@@ -709,36 +709,66 @@ with tab_run:
         st.dataframe(summary_df, use_container_width=True, hide_index=True)
 
         st.markdown("#### Distribuição da confiabilidade — priori vs. posteriori")
-        env_choice = st.selectbox(
-            "Ambiente", options=sorted(envs), format_func=lambda e: f"Ambiente {e}"
-        )
-        prior_df = envs[env_choice].get("prior", {}).get("reliability")
-        post_df = envs[env_choice].get("posterior", {}).get("reliability")
+
+        all_envs = sorted(envs)
+        st.session_state.setdefault("result_envs_select", all_envs[:1])
+        # remove da seleção salva qualquer ambiente que não exista mais (ex.: K mudou entre execuções)
+        st.session_state["result_envs_select"] = [e for e in st.session_state["result_envs_select"] if e in all_envs] or all_envs[:1]
+        st.session_state.setdefault("result_value_type", "PDF")
+        st.session_state.setdefault("result_show_dists", ["Priori", "Posteriori"])
+
+        cc1, cc2, cc3 = st.columns([2, 1, 1])
+        with cc1:
+            env_choices = st.multiselect(
+                "Ambientes", options=all_envs, format_func=lambda e: f"Ambiente {e}", key="result_envs_select"
+            )
+        with cc2:
+            value_type = st.radio("Distribuição", options=["PDF", "CDF"], key="result_value_type", horizontal=True)
+        with cc3:
+            show_dists = st.multiselect(
+                "Mostrar", options=["Priori", "Posteriori"], key="result_show_dists"
+            )
+
+        value_col = "pdf" if value_type == "PDF" else "cdf"
+        value_axis_title = "Densidade (PDF)" if value_type == "PDF" else "Probabilidade acumulada (CDF)"
 
         chart_rows = []
-        if prior_df is not None:
-            for _, r in prior_df.iterrows():
-                chart_rows.append({"Confiabilidade": r["value"], "CDF": r["cdf"], "Distribuição": "Priori"})
-        if post_df is not None:
-            for _, r in post_df.iterrows():
-                chart_rows.append({"Confiabilidade": r["value"], "CDF": r["cdf"], "Distribuição": "Posteriori"})
+        dist_key_map = {"Priori": "prior", "Posteriori": "posterior"}
+        for env_idx in env_choices:
+            for dist_label in show_dists:
+                dist_df = envs[env_idx].get(dist_key_map[dist_label], {}).get("reliability")
+                if dist_df is None:
+                    continue
+                for _, r in dist_df.iterrows():
+                    chart_rows.append(
+                        {
+                            "Ambiente": f"Ambiente {env_idx}",
+                            "Confiabilidade": r["value"],
+                            "Valor": r[value_col],
+                            "Distribuição": dist_label,
+                        }
+                    )
 
-        if chart_rows:
+        if not env_choices or not show_dists:
+            st.info("Selecione ao menos um ambiente e uma distribuição (Priori/Posteriori) para ver o gráfico.")
+        elif chart_rows:
             chart_df = pd.DataFrame(chart_rows)
             chart = (
                 alt.Chart(chart_df)
-                .mark_line(point=False)
+                .mark_bar(opacity=0.65)
                 .encode(
                     x=alt.X("Confiabilidade:Q", title="Confiabilidade no tempo de missão"),
-                    y=alt.Y("CDF:Q", title="CDF"),
+                    y=alt.Y("Valor:Q", title=value_axis_title),
                     color=alt.Color(
                         "Distribuição:N",
                         scale=alt.Scale(domain=["Priori", "Posteriori"], range=[DRUM["text_secondary"], DRUM["blue_primary"]]),
                     ),
                 )
-                .properties(height=320)
+                .properties(width=200, height=200)
+                .facet(column=alt.Column("Ambiente:N", title=None), columns=3)
+                .resolve_scale(y="independent")
             )
-            st.altair_chart(chart, use_container_width=True)
+            st.altair_chart(chart, use_container_width=False)
 
         st.download_button(
             "⬇ Baixar saída completa (.txt)",
