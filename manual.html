@@ -107,18 +107,39 @@ os ambientes elicitados e o ambiente de uso real.</p>
 </table>
 
 <h2>Aba 2 — Plano de teste</h2>
+<p>Esta aba usa um modelo em duas camadas: primeiro você define alguns
+<strong>perfis de teste</strong> reutilizáveis (a sequência de passos de estresse),
+depois só diz qual perfil cada <strong>item</strong> (corpo de prova) seguiu.
+Isso evita repetir a mesma configuração de passos item a item.</p>
+
+<h3>1 · Perfis de teste</h3>
+<p>Um perfil tem <code>S</code> passos, cada um com:</p>
+<table>
+<tr><th>Campo</th><th>Significado</th></tr>
+<tr><td>Ambiente</td><td>Índice do ambiente (1..K) do passo.</td></tr>
+<tr><td>Duração (h)</td><td>Duração do passo, em horas.</td></tr>
+<tr><td>Rampa (h)</td><td>Tempo de rampa (transição gradual de estresse) no início do passo. No gráfico do perfil, rampas pequenas são exibidas com uma largura mínima fixa (e sempre rotuladas com o valor real, ex. "rampa 6h"), para que a transição gradual fique visível mesmo quando é uma fração ínfima da duração total — o valor real, não o exibido, é o que entra no cálculo.</td></tr>
+</table>
+<p>Há três formas de configurar os perfis (alternáveis a qualquer momento):</p>
+<ul>
+<li><strong>Tabela</strong> — edição direta dos passos de um perfil por vez, em uma tabela.</li>
+<li><strong>Upload Excel</strong> — carregar uma planilha .xlsx com duas abas (<code>Perfis</code> e <code>Atribuicao</code>); um botão baixa o template já preenchido com os dados atuais.</li>
+<li><strong>Construtor visual</strong> — cada passo é editado com um seletor de ambiente e campos de duração/rampa, com um gráfico de degraus atualizado em tempo real.</li>
+</ul>
+
+<h3>2 · Atribuir corpos de prova aos perfis</h3>
 <p>Uma linha por item testado, com as colunas:</p>
 <table>
 <tr><th>Coluna</th><th>Significado</th></tr>
-<tr><td><code>env_i</code></td><td>Índice do ambiente (1..K) no passo <em>i</em> do teste desse item.</td></tr>
-<tr><td><code>t_i</code></td><td>Marco de tempo acumulado ao final do passo <em>i</em> (<code>t_0</code> é sempre 0).</td></tr>
-<tr><td><code>ramp_i</code></td><td>Tempo de rampa (transição gradual de estresse) no início do passo <em>i</em>.</td></tr>
-<tr><td><code>failure_time</code></td><td>Tempo em que o item falhou, ou o tempo de censura se sobreviveu ao teste.</td></tr>
+<tr><td>Perfil</td><td>Qual perfil de teste (seção 1) esse item seguiu.</td></tr>
+<tr><td>Tempo de falha (h)</td><td>Tempo em que o item falhou.</td></tr>
+<tr><td>Censurado</td><td>Marque se o item sobreviveu ao teste sem falhar — o tempo final do perfil é usado automaticamente como tempo de censura, sem precisar preencher o campo anterior.</td></tr>
 </table>
+
 <p>Use o botão <strong>"Carregar exemplo do artigo"</strong>, na barra lateral, para
 preencher tudo automaticamente com os dados de exemplo de Van Dorp &amp; Mazzuchi
-(2004) — 5 ambientes, 12 itens, 4 planos de teste diferentes (degrau progressivo,
-regular, degrau regressivo e perfil) — e ver o ATLAS funcionando de ponta a ponta
+(2004) — 5 ambientes, 12 itens, 4 perfis de teste diferentes (degrau progressivo,
+regular, degrau regressivo e perfil misto) — e ver o ATLAS funcionando de ponta a ponta
 antes de inserir dados próprios.</p>
 
 <h2>Aba 3 — Executar &amp; resultados</h2>

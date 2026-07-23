@@ -73,20 +73,169 @@ _RAMP = [0, 6, 6, 6, 6]
 _FAILURE_TIMES = [3598, 2153, 716, 2879, 3600, 3600, 3596, 3600, 3592, 2157, 3591, 1438]
 
 
-def paper_example_items():
-    items = []
+# --------------------------------------------------------------------------
+# Modelo de "Perfis de teste" + "Atribuição de itens" (aba 2, redesenho)
+#
+# Em vez de configurar env/t/ramp item a item, o usuário define poucos
+# PERFIS reutilizáveis (sequência de passos de estresse) e depois só diz,
+# para cada item testado, qual perfil ele seguiu e seu tempo de
+# falha/censura. Isso é convertido para a lista de TestItem (envs/times/
+# ramps/failure_time) exigida por build_input_text na hora de executar.
+# --------------------------------------------------------------------------
+_STEP_DURATION = 720.0  # duração default de cada passo (h), igual ao artigo
+
+# Monta os 4 perfis-exemplo (A/B/C/D) diretamente dos padrões do artigo.
+DEFAULT_PROFILES = {}
+for name, seq in zip(["A", "B", "C", "D"], _ENV_PATTERNS.values()):
+    DEFAULT_PROFILES[name] = [
+        {"env": int(seq[i]), "dur": float(_STEP_DURATION), "ramp": float(_RAMP[i])}
+        for i in range(len(seq))
+    ]
+
+_PROFILE_FOR_ITEM = {}
+for items_range, _seq in _ENV_PATTERNS.items():
+    profile_name = ["A", "B", "C", "D"][list(_ENV_PATTERNS.keys()).index(items_range)]
+    for j in items_range:
+        _PROFILE_FOR_ITEM[j] = profile_name
+
+
+def default_assignment_df():
+    rows = []
     for j in range(1, 13):
-        seq = next(pattern for items_range, pattern in _ENV_PATTERNS.items() if j in items_range)
-        items.append(
+        ft = _FAILURE_TIMES[j - 1]
+        rows.append(
             {
                 "item": j,
-                **{f"env_{i+1}": seq[i] for i in range(5)},
-                **{f"t_{i}": _T_BOUNDARIES[i] for i in range(6)},
-                **{f"ramp_{i+1}": _RAMP[i] for i in range(5)},
-                "failure_time": _FAILURE_TIMES[j - 1],
+                "perfil": _PROFILE_FOR_ITEM[j],
+                "tempo_falha_censura": float(ft),
+                "censurado": bool(ft == _T_BOUNDARIES[-1]),
             }
         )
-    return pd.DataFrame(items)
+    return pd.DataFrame(rows)
+
+
+def ensure_profiles_state(S: int, K: int):
+    """Garante que st.session_state['profiles'] existe e que cada perfil tem
+    exatamente S passos, com env dentro de 1..K."""
+    profiles = st.session_state.get("profiles")
+    if not profiles:
+        profiles = {name: [dict(step) for step in steps] for name, steps in DEFAULT_PROFILES.items()}
+    fixed = {}
+    for name, steps in profiles.items():
+        steps = [dict(s) for s in steps]
+        if len(steps) < S:
+            last = dict(steps[-1]) if steps else {"env": 1, "dur": _STEP_DURATION, "ramp": 0.0}
+            steps = steps + [dict(last) for _ in range(S - len(steps))]
+        elif len(steps) > S:
+            steps = steps[:S]
+        for s in steps:
+            s["env"] = int(min(max(int(s.get("env", 1)), 1), K))
+            s["dur"] = float(s.get("dur", _STEP_DURATION))
+            s["ramp"] = float(s.get("ramp", 0.0))
+        fixed[name] = steps
+    st.session_state["profiles"] = fixed
+
+
+def ensure_assignment_state(N: int):
+    """Garante que st.session_state['item_assignments'] tem N linhas e que
+    toda referência a 'perfil' aponta para um perfil que ainda existe."""
+    profile_names = list(st.session_state["profiles"].keys())
+    df = st.session_state.get("item_assignments")
+    if df is None:
+        df = default_assignment_df()
+    df = df.copy()
+    if len(df) < N:
+        extra = pd.DataFrame(
+            [
+                {
+                    "item": len(df) + i + 1,
+                    "perfil": profile_names[0],
+                    "tempo_falha_censura": 0.0,
+                    "censurado": False,
+                }
+                for i in range(N - len(df))
+            ]
+        )
+        df = pd.concat([df, extra], ignore_index=True)
+    elif len(df) > N:
+        df = df.iloc[:N].reset_index(drop=True)
+    df["item"] = range(1, N + 1)
+    df["perfil"] = df["perfil"].apply(lambda p: p if p in profile_names else profile_names[0])
+    st.session_state["item_assignments"] = df
+
+
+def assemble_test_items(profiles: dict, assignment_df: pd.DataFrame) -> list:
+    """Expande perfil + tempo de falha/censura de cada item em um TestItem
+    completo (envs/times/ramps/failure_time), pronto para build_input_text."""
+    items = []
+    for _, row in assignment_df.iterrows():
+        steps = profiles[row["perfil"]]
+        envs = [int(s["env"]) for s in steps]
+        times = [0.0]
+        for s in steps:
+            times.append(times[-1] + float(s["dur"]))
+        ramps = [float(s["ramp"]) for s in steps]
+        censurado = bool(row["censurado"])
+        failure_time = times[-1] if censurado else float(row["tempo_falha_censura"])
+        items.append(TestItem(envs=envs, times=times, ramps=ramps, failure_time=failure_time))
+    return items
+
+
+def build_profile_chart(steps: list, K: int, min_ramp_frac: float = 0.03):
+    """Gráfico de degraus (Altair) do perfil de estresse: ambiente no eixo Y,
+    tempo acumulado no eixo X. Segmentos de rampa usam uma largura MÍNIMA de
+    exibição fixa (proporção do tempo total do perfil) mesmo quando o valor
+    real da rampa é pequeno perto da duração total -- caso contrário a rampa
+    fica visualmente indistinguível de um salto instantâneo. O valor real
+    (em horas) é sempre mostrado como rótulo de texto sobre o trecho de
+    rampa; a duração real (não distorcida) é o que efetivamente entra no
+    cálculo -- a distorção é só para o desenho."""
+    total_dur = sum(s["dur"] for s in steps) or 1.0
+    ramp_display_w = min_ramp_frac * total_dur
+
+    points = []
+    labels = []
+    x = 0.0
+    prev_y = None
+    for s in steps:
+        y = s["env"]
+        if prev_y is not None and s["ramp"] > 0:
+            points.append((x, prev_y))
+            x += ramp_display_w
+            points.append((x, y))
+            labels.append((x - ramp_display_w / 2, max(y, prev_y) + 0.18, f'rampa {s["ramp"]:g}h'))
+        else:
+            points.append((x, y))
+        x_end = x + s["dur"]
+        points.append((x_end, y))
+        x = x_end
+        prev_y = y
+
+    line_df = pd.DataFrame(points, columns=["x", "y"])
+    label_df = pd.DataFrame(labels, columns=["x", "y", "text"])
+
+    line = (
+        alt.Chart(line_df)
+        .mark_line(interpolate="linear", strokeWidth=3, color=DRUM["blue_primary"])
+        .encode(
+            x=alt.X("x:Q", title="tempo acumulado (h) — rampas com largura mínima de exibição"),
+            y=alt.Y(
+                "y:Q",
+                title="ambiente",
+                scale=alt.Scale(domain=[0.4, K + 0.6]),
+                axis=alt.Axis(tickMinStep=1),
+            ),
+        )
+    )
+    chart = line
+    if not label_df.empty:
+        text = (
+            alt.Chart(label_df)
+            .mark_text(fontSize=10, color=DRUM["text_secondary"], fontWeight="bold")
+            .encode(x="x:Q", y="y:Q", text="text:N")
+        )
+        chart = line + text
+    return chart.properties(height=220)
 
 
 # --------------------------------------------------------------------------
@@ -203,7 +352,11 @@ def init_state():
         st.session_state.setdefault(k, v)
     for i, val in enumerate(PAPER_EXAMPLE["reliability_prior"]):
         st.session_state.setdefault(f"prior_{i}", val)
-    st.session_state.setdefault("test_plan_df", paper_example_items())
+    st.session_state.setdefault(
+        "profiles", {name: [dict(step) for step in steps] for name, steps in DEFAULT_PROFILES.items()}
+    )
+    st.session_state.setdefault("item_assignments", default_assignment_df())
+    st.session_state.setdefault("plan_mode", "Tabela")
 
 
 init_state()
@@ -222,7 +375,10 @@ if st.session_state.pop("_load_example", False):
         st.session_state[k] = v
     for i, val in enumerate(PAPER_EXAMPLE["reliability_prior"]):
         st.session_state[f"prior_{i}"] = val
-    st.session_state["test_plan_df"] = paper_example_items()
+    st.session_state["profiles"] = {
+        name: [dict(step) for step in steps] for name, steps in DEFAULT_PROFILES.items()
+    }
+    st.session_state["item_assignments"] = default_assignment_df()
 
 # --------------------------------------------------------------------------
 # Header
@@ -309,47 +465,180 @@ with tab_config:
     )
 
 # --------------------------------------------------------------------------
-# Tab 2 — Plano de teste
+# Tab 2 — Plano de teste (perfis de teste + atribuição de itens)
 # --------------------------------------------------------------------------
 with tab_plan:
-    st.markdown("#### Plano de teste (um item por linha)")
-    st.caption(
-        "env_i: índice do ambiente (1..K) no passo i · t_i: marco de tempo acumulado do passo i "
-        "(t_0 = 0) · ramp_i: tempo de rampa no início do passo i · failure_time: tempo de falha "
-        "ou censura do item."
-    )
-
+    K = int(st.session_state["K"])
     S = int(st.session_state["S"])
     N = int(st.session_state["N"])
-    df = st.session_state["test_plan_df"]
 
-    expected_cols = (
-        ["item"]
-        + [f"env_{i+1}" for i in range(S)]
-        + [f"t_{i}" for i in range(S + 1)]
-        + [f"ramp_{i+1}" for i in range(S)]
-        + ["failure_time"]
+    ensure_profiles_state(S, K)
+    ensure_assignment_state(N)
+
+    st.markdown("#### 1 · Perfis de teste")
+    st.caption(
+        "Um perfil é uma sequência de passos de estresse (ambiente, duração e tempo de rampa) "
+        "que pode ser reutilizada por vários itens — como os 4 planos (A/B/C/D) do artigo. "
+        "Defina os perfis primeiro; depois, na seção 2, diga qual perfil cada item seguiu."
     )
-    if list(df.columns) != expected_cols or len(df) != N:
-        rows = []
-        for j in range(1, N + 1):
-            row = {"item": j}
-            row.update({f"env_{i+1}": 1 for i in range(S)})
-            row.update({f"t_{i}": 0.0 for i in range(S + 1)})
-            row.update({f"ramp_{i+1}": 0.0 for i in range(S)})
-            row["failure_time"] = 0.0
-            rows.append(row)
-        df = pd.DataFrame(rows, columns=expected_cols)
-        st.session_state["test_plan_df"] = df
 
-    edited = st.data_editor(
-        st.session_state["test_plan_df"],
+    mode = st.radio(
+        "Como configurar os perfis",
+        options=["Tabela", "Upload Excel", "Construtor visual"],
+        horizontal=True,
+        key="plan_mode",
+    )
+
+    profile_names = list(st.session_state["profiles"].keys())
+
+    # -- criação / remoção de perfis (comum aos 3 modos) --------------------
+    cc1, cc2, cc3 = st.columns([2, 1, 1])
+    with cc1:
+        new_profile_name = st.text_input(
+            "Nome do novo perfil", key="new_profile_name", placeholder="ex.: E", label_visibility="collapsed"
+        )
+    with cc2:
+        if st.button("+ criar perfil", use_container_width=True):
+            name = st.session_state.get("new_profile_name", "").strip()
+            if name and name not in st.session_state["profiles"]:
+                st.session_state["profiles"][name] = [
+                    {"env": 1, "dur": _STEP_DURATION, "ramp": 0.0} for _ in range(S)
+                ]
+                st.rerun()
+    with cc3:
+        if len(profile_names) > 1:
+            remove_choice = st.selectbox(
+                "Remover", options=["—"] + profile_names, label_visibility="collapsed", key="remove_profile_choice"
+            )
+            if remove_choice != "—" and st.button("Remover perfil", use_container_width=True):
+                remaining = [p for p in profile_names if p != remove_choice]
+                del st.session_state["profiles"][remove_choice]
+                assign_df = st.session_state["item_assignments"]
+                assign_df.loc[assign_df["perfil"] == remove_choice, "perfil"] = remaining[0]
+                st.session_state["item_assignments"] = assign_df
+                st.rerun()
+
+    profile_names = list(st.session_state["profiles"].keys())
+
+    if mode == "Tabela":
+        sel_profile = st.selectbox("Perfil a editar", options=profile_names, key="table_profile_select")
+        steps = st.session_state["profiles"][sel_profile]
+        steps_df = pd.DataFrame(steps)
+        steps_df.insert(0, "passo", range(1, S + 1))
+        edited_steps = st.data_editor(
+            steps_df,
+            num_rows="fixed",
+            use_container_width=True,
+            disabled=["passo"],
+            column_config={
+                "env": st.column_config.NumberColumn("Ambiente", min_value=1, max_value=K, step=1),
+                "dur": st.column_config.NumberColumn("Duração (h)", min_value=0.0),
+                "ramp": st.column_config.NumberColumn("Rampa (h)", min_value=0.0),
+            },
+            key=f"steps_editor_{sel_profile}",
+        )
+        st.session_state["profiles"][sel_profile] = edited_steps[["env", "dur", "ramp"]].to_dict("records")
+        st.altair_chart(build_profile_chart(st.session_state["profiles"][sel_profile], K), use_container_width=True)
+
+    elif mode == "Upload Excel":
+        st.caption(
+            "Planilha com duas abas: **Perfis** (colunas: perfil, passo, env, dur, ramp) e "
+            "**Atribuicao** (colunas: item, perfil, tempo_falha_censura, censurado)."
+        )
+        template_rows = []
+        for name, steps in st.session_state["profiles"].items():
+            for i, s in enumerate(steps, start=1):
+                template_rows.append({"perfil": name, "passo": i, "env": s["env"], "dur": s["dur"], "ramp": s["ramp"]})
+        template_perfis = pd.DataFrame(template_rows)
+        template_assign = st.session_state["item_assignments"]
+
+        import io as _io
+
+        buf = _io.BytesIO()
+        with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+            template_perfis.to_excel(writer, sheet_name="Perfis", index=False)
+            template_assign.to_excel(writer, sheet_name="Atribuicao", index=False)
+        st.download_button(
+            "⬇ Baixar template (com os dados atuais)",
+            data=buf.getvalue(),
+            file_name="atlas_plano_de_teste_template.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
+        uploaded = st.file_uploader("Carregar planilha preenchida (.xlsx)", type=["xlsx"], key="plan_excel_uploader")
+        if uploaded is not None:
+            try:
+                sheets = pd.read_excel(uploaded, sheet_name=["Perfis", "Atribuicao"])
+                perfis_df, assign_df = sheets["Perfis"], sheets["Atribuicao"]
+                new_profiles = {}
+                for name, group in perfis_df.sort_values("passo").groupby("perfil"):
+                    new_profiles[name] = [
+                        {"env": int(r["env"]), "dur": float(r["dur"]), "ramp": float(r["ramp"])}
+                        for _, r in group.iterrows()
+                    ]
+                assign_df = assign_df.copy()
+                assign_df["censurado"] = assign_df["censurado"].astype(bool)
+                st.session_state["profiles"] = new_profiles
+                st.session_state["item_assignments"] = assign_df
+                st.success("Planilha carregada com sucesso.")
+                st.rerun()
+            except Exception as e:  # noqa: BLE001
+                st.error(f"Não foi possível ler a planilha: {e}")
+
+    else:  # Construtor visual
+        sel_profile = st.radio("Perfil a editar", options=profile_names, horizontal=True, key="visual_profile_select")
+        steps = st.session_state["profiles"][sel_profile]
+        st.caption("Ambiente, duração e rampa de cada passo do perfil selecionado:")
+        for i, s in enumerate(steps):
+            col_a, col_b, col_c = st.columns([3, 1, 1])
+            env_key, dur_key, ramp_key = (
+                f"visual_env_{sel_profile}_{i}",
+                f"visual_dur_{sel_profile}_{i}",
+                f"visual_ramp_{sel_profile}_{i}",
+            )
+            # Mesma regra do restante do app: nunca combinar "value=/default="
+            # explicito com uma "key=" ja populada em session_state -- por
+            # isso o valor inicial e escrito ANTES do widget, via setdefault.
+            st.session_state.setdefault(env_key, s["env"])
+            st.session_state.setdefault(dur_key, float(s["dur"]))
+            st.session_state.setdefault(ramp_key, float(s["ramp"]))
+            with col_a:
+                env_val = st.segmented_control(
+                    f"Passo {i+1} — ambiente",
+                    options=list(range(1, K + 1)),
+                    key=env_key,
+                )
+                if env_val is not None:
+                    s["env"] = int(env_val)
+            with col_b:
+                s["dur"] = st.number_input("Duração (h)", min_value=0.0, key=dur_key)
+            with col_c:
+                s["ramp"] = st.number_input("Rampa (h)", min_value=0.0, key=ramp_key)
+        st.session_state["profiles"][sel_profile] = steps
+        st.altair_chart(build_profile_chart(steps, K), use_container_width=True)
+
+    st.markdown("---")
+    st.markdown("#### 2 · Atribuir corpos de prova aos perfis")
+    st.caption(
+        "Uma linha por item testado: escolha o perfil seguido e informe o tempo de falha "
+        "(ou marque **censurado** para um item que sobreviveu ao teste — o tempo final do "
+        "perfil é usado automaticamente nesse caso)."
+    )
+    profile_names = list(st.session_state["profiles"].keys())
+    edited_assign = st.data_editor(
+        st.session_state["item_assignments"],
         num_rows="fixed",
         use_container_width=True,
         disabled=["item"],
-        key="test_plan_editor",
+        column_config={
+            "item": st.column_config.NumberColumn("Item"),
+            "perfil": st.column_config.SelectboxColumn("Perfil", options=profile_names),
+            "tempo_falha_censura": st.column_config.NumberColumn("Tempo de falha (h)", min_value=0.0),
+            "censurado": st.column_config.CheckboxColumn("Censurado"),
+        },
+        key="assignment_editor",
     )
-    st.session_state["test_plan_df"] = edited
+    st.session_state["item_assignments"] = edited_assign
 
 # --------------------------------------------------------------------------
 # Tab 3 — Executar & Resultados
@@ -366,18 +655,8 @@ with tab_run:
             K = int(st.session_state["K"])
             N = int(st.session_state["N"])
             S = int(st.session_state["S"])
-            df = st.session_state["test_plan_df"]
 
-            items = []
-            for _, row in df.iterrows():
-                items.append(
-                    TestItem(
-                        envs=[int(row[f"env_{i+1}"]) for i in range(S)],
-                        times=[float(row[f"t_{i}"]) for i in range(S + 1)],
-                        ramps=[float(row[f"ramp_{i+1}"]) for i in range(S)],
-                        failure_time=float(row["failure_time"]),
-                    )
-                )
+            items = assemble_test_items(st.session_state["profiles"], st.session_state["item_assignments"])
 
             input_text = build_input_text(
                 K=K,
