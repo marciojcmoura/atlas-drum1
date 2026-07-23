@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="utf-8">
+<style>
+  body {
+    font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    color: #1A1A1A;
+    background: #FFFFFF;
+    margin: 0;
+    padding: 4px 8px 24px 8px;
+    line-height: 1.55;
+    font-size: 14px;
+  }
+  h1 { font-size: 22px; font-weight: 700; margin: 0 0 2px 0; color: #1A1A1A; }
+  .subtitle { color: #6B7280; font-size: 13px; margin-bottom: 20px; }
+  h2 {
+    font-size: 16px; font-weight: 700; color: #1F4E9F;
+    margin-top: 28px; margin-bottom: 8px;
+    padding-bottom: 6px; border-bottom: 1px solid #E5E7EB;
+  }
+  h3 { font-size: 14px; font-weight: 700; color: #155E75; margin-top: 18px; margin-bottom: 6px; }
+  p { margin: 6px 0; }
+  ul, ol { margin: 6px 0; padding-left: 22px; }
+  li { margin: 4px 0; }
+  code {
+    background: #F1F3F5; padding: 1px 6px; border-radius: 4px;
+    font-family: "SF Mono", Consolas, monospace; font-size: 12.5px; color: #0F6E56;
+  }
+  .card {
+    background: #F8F9FA; border: 1px solid #E5E7EB; border-radius: 12px;
+    padding: 14px 18px; margin: 12px 0;
+  }
+  table { width: 100%; border-collapse: collapse; margin: 10px 0 18px 0; font-size: 13px; }
+  th {
+    text-align: left; text-transform: uppercase; font-size: 11px; letter-spacing: 0.5px;
+    color: #6B7280; border-bottom: 1px solid #E5E7EB; padding: 6px 8px;
+  }
+  td { padding: 7px 8px; border-bottom: 1px solid #F1F3F5; vertical-align: top; }
+  .badge {
+    display: inline-block; padding: 2px 10px; border-radius: 999px;
+    background: #F1F3F5; color: #1A1A1A; font-size: 11.5px; font-weight: 600; margin-right: 4px;
+  }
+  .step {
+    display: flex; gap: 12px; margin: 10px 0;
+  }
+  .step-num {
+    flex-shrink: 0; width: 24px; height: 24px; border-radius: 50%;
+    background: #1F4E9F; color: #FFFFFF; font-size: 12px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .footer {
+    margin-top: 32px; padding-top: 14px; border-top: 1px solid #E5E7EB;
+    color: #6B7280; font-size: 12px;
+  }
+</style>
+</head>
+<body>
+
+<h1>ATLAS — manual do usuário</h1>
+<div class="subtitle">Accelerated Testing &amp; Lifetime Analysis System · módulo DRUM · Risk Management</div>
+
+<div class="card">
+<p><strong>O que é o ATLAS.</strong> Uma ferramenta de inferência Bayesiana para testes de vida
+acelerados (ALT — accelerated life testing), implementando o modelo geral de
+Van Dorp &amp; Mazzuchi (2004), <em>"A general Bayes exponential inference model for
+accelerated life testing"</em>, Journal of Statistical Planning and Inference 119, 55–74.
+Dado um conjunto de ambientes de estresse (temperatura, tensão, etc.) ordenados do
+menos ao mais severo, o ATLAS combina uma estimativa de confiabilidade elicitada a
+priori com os dados observados do teste (falhas e censuras) para produzir uma
+distribuição a posteriori da confiabilidade e da taxa de falha em cada ambiente,
+inclusive no ambiente de uso nominal.</p>
+</div>
+
+<h2>Visão geral do fluxo</h2>
+<div class="step"><div class="step-num">1</div><div><strong>Configuração</strong> — número de ambientes, itens e passos de estresse; parâmetros da missão; confiabilidade elicitada a priori por ambiente; parâmetros da amostragem MCMC.</div></div>
+<div class="step"><div class="step-num">2</div><div><strong>Plano de teste</strong> — uma linha por item testado: sequência de ambientes percorridos, marcos de tempo, tempos de rampa e tempo de falha/censura.</div></div>
+<div class="step"><div class="step-num">3</div><div><strong>Executar &amp; resultados</strong> — roda o motor de cálculo (C++ compilado na primeira execução) e mostra a confiabilidade a priori vs. a posteriori por ambiente.</div></div>
+
+<h2>Aba 1 — Configuração</h2>
+
+<h3>Ambientes e missão</h3>
+<table>
+<tr><th>Campo</th><th>Significado</th></tr>
+<tr><td><code>K</code></td><td>Número de ambientes de estresse testados (ex.: 5 níveis de temperatura/tensão).</td></tr>
+<tr><td><code>N</code></td><td>Número de itens testados no total, somando todos os ambientes.</td></tr>
+<tr><td><code>S</code></td><td>Número de passos de estresse no plano de teste (para testes em degraus/step-stress).</td></tr>
+<tr><td>Forma Weibull (β)</td><td>Parâmetro de forma da distribuição Weibull do tempo de falha (β = 1 recupera o caso exponencial do artigo original).</td></tr>
+<tr><td>Tempo de missão (τ)</td><td>Horizonte de tempo no qual a confiabilidade é avaliada.</td></tr>
+<tr><td>Tipo de dado</td><td><span class="badge">Tipo I</span> = tempo de censura fixo e igual para todos os itens; <span class="badge">Intervalar</span> = falhas observadas apenas dentro de um intervalo de inspeção.</td></tr>
+</table>
+
+<h3>Confiabilidade elicitada a priori</h3>
+<p>Uma estimativa de especialista da confiabilidade no tempo de missão, para cada
+ambiente — do menos ao mais severo. Deve ser estritamente decrescente
+(ambientes mais severos têm confiabilidade prévia menor). O <strong>ambiente de uso
+nominal</strong> e a <strong>confiabilidade no quantil 5%</strong> ajudam a ancorar a escala entre
+os ambientes elicitados e o ambiente de uso real.</p>
+
+<h3>Amostragem MCMC</h3>
+<table>
+<tr><th>Campo</th><th>Significado</th></tr>
+<tr><td>Iterações totais</td><td>Tamanho da cadeia de Metropolis-Hastings. Mais iterações → resultado mais estável, porém mais lento.</td></tr>
+<tr><td>Burn-in</td><td>Iterações iniciais descartadas antes da cadeia estabilizar. Também é a janela em que a largura do passo da proposta se auto-ajusta (visando uma taxa de aceitação saudável, 20–50%).</td></tr>
+<tr><td>Thinning</td><td>Sub-amostragem da cadeia para reduzir autocorrelação entre amostras salvas.</td></tr>
+<tr><td>Faixas do CDF</td><td>Número de faixas usadas para discretizar a distribuição final em uma tabela de densidade/CDF.</td></tr>
+</table>
+
+<h2>Aba 2 — Plano de teste</h2>
+<p>Uma linha por item testado, com as colunas:</p>
+<table>
+<tr><th>Coluna</th><th>Significado</th></tr>
+<tr><td><code>env_i</code></td><td>Índice do ambiente (1..K) no passo <em>i</em> do teste desse item.</td></tr>
+<tr><td><code>t_i</code></td><td>Marco de tempo acumulado ao final do passo <em>i</em> (<code>t_0</code> é sempre 0).</td></tr>
+<tr><td><code>ramp_i</code></td><td>Tempo de rampa (transição gradual de estresse) no início do passo <em>i</em>.</td></tr>
+<tr><td><code>failure_time</code></td><td>Tempo em que o item falhou, ou o tempo de censura se sobreviveu ao teste.</td></tr>
+</table>
+<p>Use o botão <strong>"Carregar exemplo do artigo"</strong>, na barra lateral, para
+preencher tudo automaticamente com os dados de exemplo de Van Dorp &amp; Mazzuchi
+(2004) — 5 ambientes, 12 itens, 4 planos de teste diferentes (degrau progressivo,
+regular, degrau regressivo e perfil) — e ver o ATLAS funcionando de ponta a ponta
+antes de inserir dados próprios.</p>
+
+<h2>Aba 3 — Executar &amp; resultados</h2>
+<p>Ao clicar em <strong>"Executar análise"</strong>, o ATLAS:</p>
+<ol>
+<li>Compila o motor de cálculo em C++ (só na primeira vez; as execuções seguintes reaproveitam o binário já compilado).</li>
+<li>Monta o arquivo de entrada a partir dos parâmetros e do plano de teste.</li>
+<li>Roda a cadeia de Metropolis-Hastings conjunta sobre os K ambientes.</li>
+<li>Mostra, por ambiente: a confiabilidade a priori (média) e a posteriori (média, mediana e moda), além da distribuição completa (CDF) comparando priori vs. posteriori.</li>
+</ol>
+<p>O botão <strong>"Baixar saída completa"</strong> exporta o resultado bruto (tabelas de
+densidade/CDF de taxa de falha e confiabilidade, priori e posteriori, para cada
+ambiente) em texto plano.</p>
+
+<h2>Metodologia (para quem quer os detalhes)</h2>
+<p>O motor de cálculo é o código C++ original (2005) do próprio autor deste
+software, validado equação-a-equação contra o artigo de Van Dorp &amp; Mazzuchi
+(2004) e com os seguintes pontos corrigidos e documentados no código-fonte:</p>
+<ul>
+<li>Verossimilhança de dados censurados Tipo I e intervalares (Seção 2 do artigo).</li>
+<li>Prior Dirichlet ordenada sobre a confiabilidade dos K ambientes, preservando a dependência positiva entre ambientes (Seção 3).</li>
+<li>Amostrador de Metropolis-Hastings em bloco com <strong>cadeia única conjunta</strong>
+sobre os K ambientes (em vez de K cadeias independentes), com <strong>proposta
+adaptativa</strong> durante o burn-in — a largura do passo se ajusta automaticamente
+visando uma taxa de aceitação saudável, o que elimina inconsistências de
+ordenação da confiabilidade entre ambientes vizinhos observadas em versões
+anteriores.</li>
+</ul>
+
+<div class="footer">
+ATLAS · módulo do ecossistema DRUM · Risk Management · CEERMA-UFPE · Petrobras<br>
+Referência: J. René Van Dorp, T.A. Mazzuchi (2004), "A general Bayes exponential inference model for accelerated life testing", Journal of Statistical Planning and Inference 119, 55–74.
+</div>
+
+</body>
+</html>

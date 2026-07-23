@@ -1,0 +1,6 @@
+cpp/*.o
+cpp/alt_cli
+cpp/atlas_cli
+__pycache__/
+*.pyc
+.streamlit/secrets.toml
