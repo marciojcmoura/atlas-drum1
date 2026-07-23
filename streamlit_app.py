@@ -716,8 +716,9 @@ with tab_run:
         st.session_state["result_envs_select"] = [e for e in st.session_state["result_envs_select"] if e in all_envs] or all_envs[:1]
         st.session_state.setdefault("result_value_type", "PDF")
         st.session_state.setdefault("result_show_dists", ["Priori", "Posteriori"])
+        st.session_state.setdefault("result_n_bins", 50)
 
-        cc1, cc2, cc3 = st.columns([2, 1, 1])
+        cc1, cc2, cc3, cc4 = st.columns([2, 1, 1, 1])
         with cc1:
             env_choices = st.multiselect(
                 "Ambientes", options=all_envs, format_func=lambda e: f"Ambiente {e}", key="result_envs_select"
@@ -728,6 +729,16 @@ with tab_run:
             show_dists = st.multiselect(
                 "Mostrar", options=["Priori", "Posteriori"], key="result_show_dists"
             )
+        with cc4:
+            n_bins = st.number_input(
+                "Faixas do histograma", min_value=5, max_value=200, step=5, key="result_n_bins"
+            )
+        st.caption(
+            "A altura do pico do histograma depende do número de faixas: menos faixas "
+            "acumulam mais massa de probabilidade por barra (pico mais alto), mais faixas "
+            "se aproximam da resolução bruta do modelo (pico mais baixo). Ajuste para "
+            "comparar com outras fontes."
+        )
 
         value_col = "pdf" if value_type == "PDF" else "cdf"
         value_axis_title = "Densidade (PDF)" if value_type == "PDF" else "Probabilidade acumulada (CDF)"
@@ -785,7 +796,11 @@ with tab_run:
                 .encode(
                     x=alt.X(
                         "Confiabilidade:Q",
-                        bin=alt.Bin(maxbins=25, extent=[0, 1]),
+                        # "step" (nao "maxbins") garante EXATAMENTE n_bins faixas de
+                        # largura igual sobre [0,1] -- maxbins e so um teto aproximado
+                        # que o Vega-Lite "arredonda" para numeros redondos, o que
+                        # tornaria o controle de granularidade acima imprevisivel.
+                        bin=alt.Bin(extent=[0, 1], step=1.0 / int(n_bins)),
                         title="Confiabilidade no tempo de missão",
                         scale=alt.Scale(domain=[0, 1]),
                     ),
@@ -811,7 +826,10 @@ with tab_run:
             # marcas da renderizacao anterior (ex.: a serie cinza da Priori) atras
             # da nova, mesmo depois de desmarcar essa distribuicao em "Mostrar".
             # Uma key distinta forca o componente a ser remontado do zero.
-            chart_key = "result_chart_" + "-".join(str(e) for e in env_choices) + "_" + value_type + "_" + "-".join(show_dists)
+            chart_key = (
+                "result_chart_" + "-".join(str(e) for e in env_choices) + "_" + value_type
+                + "_" + "-".join(show_dists) + f"_bins{n_bins}"
+            )
             st.altair_chart(chart, use_container_width=False, key=chart_key)
 
         st.download_button(
