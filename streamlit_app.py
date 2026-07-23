@@ -775,7 +775,14 @@ with tab_run:
                 .facet(column=alt.Column("Ambiente:N", title=None), columns=3)
                 .resolve_scale(y="independent")
             )
-            st.altair_chart(chart, use_container_width=False)
+            # "key" muda a cada combinacao de ambiente/distribuicao/mostrar -- sem
+            # isso, o Streamlit tenta reaproveitar o componente Vega-Lite anterior
+            # e faz um patch incremental que, em graficos com facetas, pode deixar
+            # marcas da renderizacao anterior (ex.: a serie cinza da Priori) atras
+            # da nova, mesmo depois de desmarcar essa distribuicao em "Mostrar".
+            # Uma key distinta forca o componente a ser remontado do zero.
+            chart_key = "result_chart_" + "-".join(str(e) for e in env_choices) + "_" + value_type + "_" + "-".join(show_dists)
+            st.altair_chart(chart, use_container_width=False, key=chart_key)
 
         st.download_button(
             "⬇ Baixar saída completa (.txt)",
