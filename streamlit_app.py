@@ -757,7 +757,6 @@ with tab_run:
                             "Confiabilidade": r["value"],
                             "Valor": r[value_col],
                             "Distribuição": dist_label,
-                            "Painel": f"Ambiente {env_idx} · {dist_label}",
                         }
                     )
 
@@ -772,39 +771,22 @@ with tab_run:
             _dist_colors = {"Priori": DRUM["text_secondary"], "Posteriori": DRUM["blue_primary"]}
             color_domain = [d for d in ["Priori", "Posteriori"] if d in show_dists]
             color_range = [_dist_colors[d] for d in color_domain]
-            # A tabela original tem ~"intervals" pontos (200 por padrao) -- reagrupamos
-            # em n_bins faixas (histograma de verdade) sobre o eixo X, sempre fixo em
-            # [0,1]. Priori e posteriori sao avaliadas de forma INDEPENDENTE: cada uma
-            # vira seu proprio painel, cada painel com escala Y propria (resolve_scale
-            # independente) -- assim a altura de uma nao fica comprimida/distorcida
-            # pela escala da outra. As bordas das faixas no eixo X continuam as mesmas
-            # (0 a 1, n_bins fixo) para as duas, entao a posicao horizontal continua
-            # comparavel entre os paineis, so a altura (escala Y) que e independente.
+            # Um UNICO grafico por ambiente (facet por Ambiente, xOffset agrupando
+            # Priori/Posteriori lado a lado dentro do mesmo painel, Y compartilhado
+            # por ambiente) -- este e o design estavel, testado e aprovado; NAO usar
+            # paineis separados por distribuicao (row+column facet quebrava a
+            # renderizacao das barras no componente Vega-Lite do Streamlit, e mesmo
+            # depois de corrigido o usuario preferiu um unico grafico por ambiente
+            # em vez de dois paineis lado a lado).
             #
-            # NOTA: os paineis usam uma UNICA faceta (campo "Painel" = distribuicao +
-            # ambiente combinados), nao "row=" e "column=" simultaneos -- testado e
-            # confirmado que combinar as duas facetas ao mesmo tempo quebra a
-            # renderizacao das barras especificamente dentro do componente Vega-Lite
-            # do Streamlit (o grafico ficava com os eixos certos mas sem nenhuma barra
-            # visivel), mesmo a especificacao sendo valida (renderiza normalmente fora
-            # do Streamlit, via vl-convert). Uma faceta so, com "columns=" para
-            # controlar o numero de colunas por linha, e o padrao comprovadamente
-            # seguro neste ambiente.
-            #
-            # IMPORTANTE (bug corrigido antes): a tabela bruta do modelo tem ~200
-            # pontos de "pdf" que somam exatamente 1 por construcao (cada ponto ja e
-            # uma massa de probabilidade normalizada, ver
-            # PosteriorAproximation.cpp/reducePrior). Ao reagrupar esses ~200 pontos em
-            # n_bins faixas, e preciso SOMAR (nao tirar a media) os pontos de cada
-            # faixa nova -- do contrario a soma das barras exibidas deixa de ser 1. A
-            # CDF, por ser cumulativa, usa o MAXIMO de cada faixa, nao a soma.
+            # IMPORTANTE (bug corrigido): a tabela bruta do modelo tem ~200 pontos de
+            # "pdf" que somam exatamente 1 por construcao (cada ponto ja e uma massa
+            # de probabilidade normalizada, ver PosteriorAproximation.cpp/reducePrior).
+            # Ao reagrupar esses ~200 pontos em n_bins faixas para o histograma, é
+            # preciso SOMAR (nao tirar a media) os pontos de cada faixa nova -- do
+            # contrario a soma das barras exibidas deixa de ser 1. A CDF, por ser
+            # cumulativa, usa o MAXIMO de cada faixa, nao a soma.
             agg_fn = "sum" if value_type == "PDF" else "max"
-            # Ordem ambiente-major (uma linha por ambiente, priori/posteriori como
-            # colunas dessa linha) -- "columns=len(show_dists)" e o que faz o wrap da
-            # faceta respeitar essa agrupacao (testado: usar len(env_choices) aqui
-            # produzia um wrap incorreto sempre que o numero de ambientes e de
-            # distribuicoes selecionadas era diferente).
-            painel_sort = [f"Ambiente {e} · {d}" for e in env_choices for d in color_domain]
             chart = (
                 alt.Chart(chart_df)
                 .mark_bar()
@@ -819,21 +801,18 @@ with tab_run:
                         title="Confiabilidade no tempo de missão",
                         scale=alt.Scale(domain=[0, 1]),
                     ),
-                    # Y dinamico (auto-scale por painel, independente por ambiente E
-                    # por distribuicao -- ver resolve_scale abaixo). Valores exibidos
-                    # como frequencia relativa (0 a 1), sem formatacao percentual.
+                    xOffset=alt.XOffset("Distribuição:N", sort=color_domain),
+                    # Y dinamico (auto-scale por painel/ambiente, via resolve_scale
+                    # abaixo). Valores exibidos como frequencia relativa (0 a 1), sem
+                    # formatacao percentual.
                     y=alt.Y(f"{agg_fn}(Valor):Q", title=value_axis_title),
                     color=alt.Color(
                         "Distribuição:N",
                         scale=alt.Scale(domain=color_domain, range=color_range),
-                        legend=None,
                     ),
                 )
-                .properties(width=200, height=140)
-                .facet(
-                    facet=alt.Facet("Painel:N", title=None, sort=painel_sort),
-                    columns=len(show_dists),
-                )
+                .properties(width=200, height=200)
+                .facet(column=alt.Column("Ambiente:N", title=None), columns=3)
                 .resolve_scale(y="independent")
             )
             # "key" muda a cada combinacao de ambiente/distribuicao/mostrar -- sem
