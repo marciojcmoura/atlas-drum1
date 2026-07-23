@@ -753,6 +753,13 @@ with tab_run:
             st.info("Selecione ao menos um ambiente e uma distribuição (Priori/Posteriori) para ver o gráfico.")
         elif chart_rows:
             chart_df = pd.DataFrame(chart_rows)
+            # Escala de cor construida so com as distribuicoes REALMENTE marcadas em
+            # "Mostrar" -- um dominio fixo faria a legenda listar "Priori"/"Posteriori"
+            # sempre, mesmo quando so uma das duas foi selecionada, dando a falsa
+            # impressao de que a outra ainda estava sendo desenhada no grafico.
+            _dist_colors = {"Priori": DRUM["text_secondary"], "Posteriori": DRUM["blue_primary"]}
+            color_domain = [d for d in ["Priori", "Posteriori"] if d in show_dists]
+            color_range = [_dist_colors[d] for d in color_domain]
             chart = (
                 alt.Chart(chart_df)
                 .mark_bar(opacity=0.65)
@@ -761,7 +768,7 @@ with tab_run:
                     y=alt.Y("Valor:Q", title=value_axis_title),
                     color=alt.Color(
                         "Distribuição:N",
-                        scale=alt.Scale(domain=["Priori", "Posteriori"], range=[DRUM["text_secondary"], DRUM["blue_primary"]]),
+                        scale=alt.Scale(domain=color_domain, range=color_range),
                     ),
                 )
                 .properties(width=200, height=200)
