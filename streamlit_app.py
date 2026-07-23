@@ -779,16 +779,12 @@ with tab_run:
                         scale=alt.Scale(domain=[0, 1]),
                     ),
                     xOffset=alt.XOffset("Distribuição:N", sort=color_domain),
-                    # Y volta a ser dinamico (auto-scale por painel, via resolve_scale
-                    # abaixo) -- travar em 0-100% deixava a PDF ilegivel, ja que a
-                    # massa de probabilidade por faixa raramente chega perto de 100%
-                    # (ao contrario da CDF, que de fato vai ate 100%). Mantido em
-                    # formato de percentual, so a escala que nao e mais fixa.
-                    y=alt.Y(
-                        "mean(Valor):Q",
-                        title=value_axis_title,
-                        axis=alt.Axis(format=".0%"),
-                    ),
+                    # Y dinamico (auto-scale por painel, via resolve_scale abaixo) --
+                    # travar em 0-100% deixava a PDF ilegivel, ja que a massa de
+                    # probabilidade por faixa raramente chega perto de 100% (ao
+                    # contrario da CDF, que de fato vai ate 100%). Valores exibidos
+                    # como frequencia relativa (0 a 1), sem formatacao percentual.
+                    y=alt.Y("mean(Valor):Q", title=value_axis_title),
                     color=alt.Color(
                         "Distribuição:N",
                         scale=alt.Scale(domain=color_domain, range=color_range),
