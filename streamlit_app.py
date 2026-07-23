@@ -768,6 +768,17 @@ with tab_run:
             # duplicando visualmente. Reagrupamos em ~25 faixas (histograma de verdade)
             # e usamos xOffset para desenhar Priori/Posteriori lado a lado em vez de
             # sobrepostas, evitando tambem a mistura visual quando as duas aparecem.
+            #
+            # IMPORTANTE (bug corrigido): a tabela bruta do modelo tem ~200 pontos de
+            # "pdf" que somam exatamente 1 por construcao (cada ponto ja e uma massa
+            # de probabilidade normalizada, ver PosteriorAproximation.cpp/reducePrior).
+            # Ao reagrupar esses ~200 pontos em ~25 faixas para o histograma, é preciso
+            # SOMAR (nao tirar a media) os pontos de cada faixa nova -- do contrario a
+            # soma das barras exibidas deixa de ser 1 (confirmado numericamente: com
+            # media, a soma variava de 0.03 a 0.86 dependendo do ambiente). A CDF, por
+            # ser cumulativa, usa o MAXIMO de cada faixa (o ultimo valor acumulado
+            # dentro dela), nao a soma.
+            agg_fn = "sum" if value_type == "PDF" else "max"
             chart = (
                 alt.Chart(chart_df)
                 .mark_bar()
@@ -784,7 +795,7 @@ with tab_run:
                     # probabilidade por faixa raramente chega perto de 100% (ao
                     # contrario da CDF, que de fato vai ate 100%). Valores exibidos
                     # como frequencia relativa (0 a 1), sem formatacao percentual.
-                    y=alt.Y("mean(Valor):Q", title=value_axis_title),
+                    y=alt.Y(f"{agg_fn}(Valor):Q", title=value_axis_title),
                     color=alt.Color(
                         "Distribuição:N",
                         scale=alt.Scale(domain=color_domain, range=color_range),
