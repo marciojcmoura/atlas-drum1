@@ -93,6 +93,16 @@ public:
 	// para os dados do ambiente pedido antes de delegar para a funcao original.
 	void PriorMetropolisSamplerJoint (int number_environments, int numberThin, int samplesBurnIn, double beta, double alpha[]);
 	void MetropolisSamplerJoint (int samples, int samplesBurnIn, int intervals, int nSkip, int number_items, int number_steps, int number_environments, double betaWeibull, double timeMission, int indexEnvironmentUse, double reliabilityQuantileEnvironmentUse, double reliabilityPrior[], double failureTimes[], bool censoredData);
+	// "Estagio 1" da interface (analise SO da priori, sem dados de teste): faz
+	// a mesma configuracao que MetropolisSamplerJoint faz antes de chamar
+	// PriorMetropolisSamplerJoint (alocar prior->counterTotalEnvironmentValue,
+	// calcular alpha[] a partir da confiabilidade elicitada, etc.) mas SEM
+	// alocar as estruturas do lado da posteriori (_valuesPosteriorByEnv), que
+	// sao desnecessarias e caras aqui. PriorMetropolisSamplerJoint sozinha
+	// NAO e autossuficiente -- depende dessa configuracao previa (confirmado
+	// com AddressSanitizer: chama-la isolada sem isso da segfault em
+	// prior->counterTotalEnvironmentValue, que fica nulo).
+	void PriorOnlyAnalysis (int number_environments, int samples, int samplesBurnIn, int intervals, double timeMission, int indexEnvironmentUse, double reliabilityQuantileEnvironmentUse, double reliabilityPrior[]);
 	void computePriorParametersForEnv (int env, int intervals, double t);
 	void computePosteriorParametersForEnv (int env, int nSkip, int numberThin, int intervals, double t);
 

@@ -95,10 +95,17 @@ def build_input_text(
     return "\n".join(lines) + "\n"
 
 
-def run_alt_cli(binary_path: str, input_text: str, timeout_s: int = 300) -> str:
+def run_alt_cli(binary_path: str, input_text: str, timeout_s: int = 300, mode: str = "full") -> str:
     """Escreve input_text em um arquivo temporario, roda alt_cli e retorna o
     conteudo do arquivo de saida (texto). Levanta AltRunError em caso de falha
-    (binario ausente, timeout, saida vazia, codigo de retorno != 0)."""
+    (binario ausente, timeout, saida vazia, codigo de retorno != 0).
+
+    mode="full": roda priori + posteriori (MCMC conjunto completo, usa os
+    dados de teste) -- "Estagio 2: Analise Posteriori" da interface.
+    mode="prior": roda SO a priori (rapido, ignora os dados de teste) --
+    "Estagio 1: Analise Priori" da interface."""
+    if mode not in ("full", "prior"):
+        raise AltRunError(f"mode invalido: {mode!r} (esperado 'full' ou 'prior').")
     if not os.path.isfile(binary_path) or not os.access(binary_path, os.X_OK):
         raise AltRunError(f"Binario alt_cli nao encontrado ou nao executavel em: {binary_path}")
 
@@ -110,7 +117,7 @@ def run_alt_cli(binary_path: str, input_text: str, timeout_s: int = 300) -> str:
 
         try:
             result = subprocess.run(
-                [binary_path, in_path, out_path],
+                [binary_path, in_path, out_path, mode],
                 capture_output=True,
                 text=True,
                 timeout=timeout_s,

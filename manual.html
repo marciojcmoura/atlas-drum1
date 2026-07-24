@@ -143,21 +143,39 @@ regular, degrau regressivo e perfil misto) — e ver o ATLAS funcionando de pont
 antes de inserir dados próprios.</p>
 
 <h2>Aba 3 — Executar &amp; resultados</h2>
-<p>Ao clicar em <strong>"Executar análise"</strong>, o ATLAS:</p>
+<p>A análise acontece em <strong>dois estágios independentes</strong>, cada um com seu próprio botão:</p>
+
+<h3>① Estágio 1: Análise Priori</h3>
+<p>Usa <strong>só</strong> a confiabilidade elicitada de especialistas (aba 1) — rápido, e
+propositalmente <strong>não</strong> usa o plano de teste (aba 2). Serve para conferir a
+priori isoladamente antes de comprometer os itens ao teste. Mostra:</p>
+<ul>
+<li>Na tabela de resumo por ambiente: confiabilidade priori (média, mediana e moda) — sem colunas de posteriori, que ainda não existe.</li>
+<li>No gráfico de distribuição: só a opção "Priori" (a "Posteriori" nem aparece, já que não foi calculada). As barras aparecem em tom <strong>verde</strong>, para diferenciar visualmente desta etapa.</li>
+</ul>
+
+<h3>② Estágio 2: Análise Posteriori</h3>
+<p>Combina a priori com os dados de teste reais (aba 2) via MCMC — a análise completa. Mostra
+tudo que o Estágio 1 mostra, mais a posteriori:</p>
 <ol>
 <li>Compila o motor de cálculo em C++ (só na primeira vez; as execuções seguintes reaproveitam o binário já compilado).</li>
 <li>Monta o arquivo de entrada a partir dos parâmetros e do plano de teste.</li>
 <li>Roda a cadeia de Metropolis-Hastings conjunta sobre os K ambientes.</li>
 <li>Mostra, por ambiente: a confiabilidade a priori (média) e a posteriori (média, mediana e moda), além da distribuição completa da confiabilidade, priori vs. posteriori.</li>
 </ol>
-<p>O gráfico de distribuição tem três controles: <strong>Ambientes</strong> (multi-seleção — vários
+
+<h3>Gráfico de distribuição</h3>
+<p>Tem quatro controles: <strong>Ambientes</strong> (multi-seleção — vários
 ambientes lado a lado, um painel de barras por ambiente), <strong>Distribuição</strong> (alternar
-entre PDF, a densidade, e CDF, a probabilidade acumulada) e <strong>Mostrar</strong>
-(escolher priori, posteriori, ou ambas as curvas no mesmo painel). Cada painel usa barras
-(cinza = priori, azul = posteriori) em vez de linhas.</p>
+entre PDF, a densidade, e CDF, a probabilidade acumulada), <strong>Mostrar</strong>
+(escolher priori, posteriori, ou ambas as curvas no mesmo painel — no Estágio 1 só priori
+está disponível) e <strong>Faixas do histograma</strong> (quantas faixas usar para agrupar a
+distribuição bruta do modelo em barras — menos faixas dão picos mais altos, mais faixas se
+aproximam da resolução bruta; ajuste para comparar com figuras de outras fontes, como o
+próprio artigo). Cada painel usa barras (verde = priori, azul = posteriori) em vez de linhas.</p>
 <p>O botão <strong>"Baixar saída completa"</strong> exporta o resultado bruto (tabelas de
-densidade/CDF de taxa de falha e confiabilidade, priori e posteriori, para cada
-ambiente) em texto plano.</p>
+densidade/CDF de taxa de falha e confiabilidade, priori e, se o Estágio 2 foi rodado,
+posteriori, para cada ambiente) em texto plano.</p>
 
 <h2>Metodologia (para quem quer os detalhes)</h2>
 <p>O motor de cálculo é o código C++ original (2005) do próprio autor deste

@@ -37,8 +37,12 @@ using namespace std;
 
 int main(int argc, char **argv)
 {
-	if (argc < 3) {
-		cerr << "Uso: alt_cli <arquivo_de_entrada> <arquivo_de_saida> [envStart envEnd]" << endl;
+	if (argc < 4) {
+		cerr << "Uso: alt_cli <arquivo_de_entrada> <arquivo_de_saida> <full|prior> [envStart envEnd]" << endl;
+		cerr << "  full: roda priori + posteriori (MCMC conjunto completo, usa os dados de teste)." << endl;
+		cerr << "  prior: roda SO a priori -- rapido, usa apenas a confiabilidade elicitada de"
+			 << " especialistas (reliabilityPrior), ignora completamente os dados de teste."
+			 << " Usado pelo botao 'Estagio 1: Analise Priori' da interface." << endl;
 		cerr << "  envStart/envEnd (opcionais): processa so um subconjunto de ambientes"
 			 << " (1-based, inclusive), mantendo o modelo conjunto (K ambientes) intacto --"
 			 << " util para dividir uma rodada longa em varias chamadas dentro do limite"
@@ -91,10 +95,13 @@ int main(int argc, char **argv)
 	bool censoredData = (censoredFlag != 0);
 	long tStart = time(0);
 
+	string mode = argv[3];
+	bool priorOnly = (mode == "prior");
+
 	int envStart = 1, envEnd = K;
-	if (argc >= 5) {
-		envStart = atoi(argv[3]);
-		envEnd = atoi(argv[4]);
+	if (argc >= 6) {
+		envStart = atoi(argv[4]);
+		envEnd = atoi(argv[5]);
 	}
 
 	// ANTES: um novo PosteriorAproximation era criado e MetropolisSampler
@@ -115,9 +122,22 @@ int main(int argc, char **argv)
 	// reaproveitam a logica original de reducao/CDF sem modifica-la).
 	PosteriorAproximation *posterior = new PosteriorAproximation();
 
-	posterior->MetropolisSamplerJoint(samples, samplesBurnIn, intervals, nSkip,
-		N, S, K, betaWeibull, timeMission, indexEnvironmentUse,
-		reliabilityQuantileEnvironmentUse, reliabilityPrior, failureTimes, censoredData);
+	if (priorOnly) {
+		// Estagio 1 da interface (botao "Estagio 1: Analise Priori"): roda SO a
+		// amostragem da priori, via PriorOnlyAnalysis (que faz a configuracao
+		// necessaria e entao chama PriorMetropolisSamplerJoint -- essa NAO e
+		// autossuficiente sozinha, precisa de alpha[]/prior->counterTotal...
+		// calculados antes; ver comentario em PriorOnlyAnalysis). Nao depende
+		// em nada dos dados de teste (env/times/ramp/failureTimes) e e muito
+		// mais rapida que MetropolisSamplerJoint pois pula inteiramente a
+		// cadeia de Metropolis-Hastings da posteriori (a parte cara do calculo).
+		posterior->PriorOnlyAnalysis(K, samples, samplesBurnIn, intervals, timeMission,
+			indexEnvironmentUse, reliabilityQuantileEnvironmentUse, reliabilityPrior);
+	} else {
+		posterior->MetropolisSamplerJoint(samples, samplesBurnIn, intervals, nSkip,
+			N, S, K, betaWeibull, timeMission, indexEnvironmentUse,
+			reliabilityQuantileEnvironmentUse, reliabilityPrior, failureTimes, censoredData);
+	}
 
 	int numberThin = samples / nSkip;
 
@@ -125,7 +145,9 @@ int main(int argc, char **argv)
 		fout << "### ENVIRONMENT " << e << " ###" << endl;
 
 		posterior->computePriorParametersForEnv(e, intervals, timeMission);
-		posterior->computePosteriorParametersForEnv(e, nSkip, numberThin, intervals, timeMission);
+		if (!priorOnly) {
+			posterior->computePosteriorParametersForEnv(e, nSkip, numberThin, intervals, timeMission);
+		}
 
 		cerr << "Ambiente " << e << " de " << K << " concluido." << endl;
 	}

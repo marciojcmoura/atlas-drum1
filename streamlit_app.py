@@ -42,6 +42,7 @@ DRUM = {
     "text_secondary": "#6B7280",
     "border": "#E5E7EB",
     "badge_bg": "#F1F3F5",
+    "green_prior": "#2F855A",  # tonalidade verde p/ graficos que so tem priori (Estagio 1)
 }
 
 ENV_COLORS = ["#1F4E9F", "#155E75", "#0F6E56", "#993C1D", "#712B13", "#534AB7", "#993556"]
@@ -645,9 +646,19 @@ with tab_plan:
 # --------------------------------------------------------------------------
 with tab_run:
     st.markdown("#### Executar o modelo")
-    run_clicked = st.button("▶ Executar análise", type="primary")
+    st.caption(
+        "**Estágio 1** usa só a confiabilidade elicitada de especialistas (a priori) — rápido, "
+        "não usa os dados de teste. **Estágio 2** combina a priori com os dados de teste reais "
+        "via MCMC, produzindo a confiabilidade posteriori. Rode o Estágio 1 primeiro para "
+        "conferir a priori antes de comprometer os itens ao teste."
+    )
+    bc1, bc2 = st.columns(2)
+    with bc1:
+        stage1_clicked = st.button("① Estágio 1: Análise Priori", use_container_width=True)
+    with bc2:
+        stage2_clicked = st.button("② Estágio 2: Análise Posteriori", type="primary", use_container_width=True)
 
-    if run_clicked:
+    def _run_stage(mode: str) -> bool:
         try:
             with st.spinner("Compilando o motor de cálculo (primeira execução pode levar alguns segundos)..."):
                 binary_path = ensure_binary(CPP_DIR)
@@ -675,48 +686,97 @@ with tab_run:
                 items=items,
             )
 
-            with st.spinner("Rodando MCMC (Metropolis-Hastings em bloco)..."):
-                output_text = run_alt_cli(binary_path, input_text, timeout_s=300)
+            spinner_msg = (
+                "Amostrando a priori (Dirichlet ordenada)..."
+                if mode == "prior"
+                else "Rodando MCMC (Metropolis-Hastings em bloco)..."
+            )
+            with st.spinner(spinner_msg):
+                output_text = run_alt_cli(binary_path, input_text, timeout_s=300, mode=mode)
 
             st.session_state["last_output_text"] = output_text
             st.session_state["last_envs"] = parse_output(output_text)
+            st.session_state["last_stage"] = mode  # "prior" (Estagio 1) ou "full" (Estagio 2)
+            # Ajusta quais distribuicoes aparecem selecionadas na secao de
+            # graficos: no Estagio 1 so existe priori (posteriori nem foi
+            # calculada), no Estagio 2 restaura as duas.
+            if mode == "prior":
+                st.session_state["result_show_dists"] = ["Priori"]
+            else:
+                current = st.session_state.get("result_show_dists", ["Priori", "Posteriori"])
+                if "Posteriori" not in current:
+                    current = current + ["Posteriori"]
+                st.session_state["result_show_dists"] = current
             st.success("Análise concluída.")
-
+            return True
         except AltRunError as e:
             st.error(str(e))
         except Exception as e:  # noqa: BLE001
             st.error(f"Erro inesperado: {e}")
+        return False
+
+    if stage1_clicked:
+        if _run_stage("prior"):
+            # Sem isto, o grafico Vega-Lite as vezes nao aparece na PRIMEIRA
+            # renderizacao logo apos uma computacao pesada dentro de
+            # st.spinner -- so aparecia depois de outra interacao qualquer
+            # (ex.: mudar as faixas do histograma). Forcar mais um rerun aqui
+            # garante que os resultados apareçam imediatamente apos o clique.
+            st.rerun()
+    if stage2_clicked:
+        if _run_stage("full"):
+            st.rerun()
 
     envs = st.session_state.get("last_envs")
+    stage = st.session_state.get("last_stage")
     if envs:
         st.markdown("#### Resumo por ambiente")
         summary_rows = []
         for env_idx in sorted(envs):
-            post_rel = envs[env_idx].get("posterior", {}).get("reliability")
             prior_rel = envs[env_idx].get("prior", {}).get("reliability")
-            s_post = summarize(post_rel)
             s_prior = summarize(prior_rel)
-            summary_rows.append(
-                {
-                    "Ambiente": env_idx,
-                    "Confiabilidade priori (média)": s_prior["mean"],
-                    "Confiabilidade posteriori (média)": s_post["mean"],
-                    "Confiabilidade posteriori (mediana)": s_post["median"],
-                    "Confiabilidade posteriori (moda)": s_post["mode"],
-                }
-            )
+            if stage == "prior":
+                summary_rows.append(
+                    {
+                        "Ambiente": env_idx,
+                        "Confiabilidade priori (média)": s_prior["mean"],
+                        "Confiabilidade priori (mediana)": s_prior["median"],
+                        "Confiabilidade priori (moda)": s_prior["mode"],
+                    }
+                )
+            else:
+                post_rel = envs[env_idx].get("posterior", {}).get("reliability")
+                s_post = summarize(post_rel)
+                summary_rows.append(
+                    {
+                        "Ambiente": env_idx,
+                        "Confiabilidade priori (média)": s_prior["mean"],
+                        "Confiabilidade posteriori (média)": s_post["mean"],
+                        "Confiabilidade posteriori (mediana)": s_post["median"],
+                        "Confiabilidade posteriori (moda)": s_post["mode"],
+                    }
+                )
         summary_df = pd.DataFrame(summary_rows).round(4)
         st.dataframe(summary_df, use_container_width=True, hide_index=True)
 
-        st.markdown("#### Distribuição da confiabilidade — priori vs. posteriori")
+        if stage == "prior":
+            st.markdown("#### Distribuição da confiabilidade — priori")
+        else:
+            st.markdown("#### Distribuição da confiabilidade — priori vs. posteriori")
 
         all_envs = sorted(envs)
         st.session_state.setdefault("result_envs_select", all_envs[:1])
         # remove da seleção salva qualquer ambiente que não exista mais (ex.: K mudou entre execuções)
         st.session_state["result_envs_select"] = [e for e in st.session_state["result_envs_select"] if e in all_envs] or all_envs[:1]
         st.session_state.setdefault("result_value_type", "PDF")
-        st.session_state.setdefault("result_show_dists", ["Priori", "Posteriori"])
         st.session_state.setdefault("result_n_bins", 50)
+
+        # No Estagio 1 (so priori), a UNICA opcao disponivel e "Priori" -- a
+        # posteriori nem foi calculada, entao nao faz sentido oferece-la.
+        dist_options = ["Priori"] if stage == "prior" else ["Priori", "Posteriori"]
+        st.session_state["result_show_dists"] = [
+            d for d in st.session_state.get("result_show_dists", dist_options) if d in dist_options
+        ] or dist_options
 
         cc1, cc2, cc3, cc4 = st.columns([2, 1, 1, 1])
         with cc1:
@@ -727,7 +787,7 @@ with tab_run:
             value_type = st.radio("Distribuição", options=["PDF", "CDF"], key="result_value_type", horizontal=True)
         with cc3:
             show_dists = st.multiselect(
-                "Mostrar", options=["Priori", "Posteriori"], key="result_show_dists"
+                "Mostrar", options=dist_options, key="result_show_dists"
             )
         with cc4:
             n_bins = st.number_input(
@@ -761,14 +821,17 @@ with tab_run:
                     )
 
         if not env_choices or not show_dists:
-            st.info("Selecione ao menos um ambiente e uma distribuição (Priori/Posteriori) para ver o gráfico.")
+            st.info("Selecione ao menos um ambiente e uma distribuição para ver o gráfico.")
         elif chart_rows:
             chart_df = pd.DataFrame(chart_rows)
             # Escala de cor construida so com as distribuicoes REALMENTE marcadas em
             # "Mostrar" -- um dominio fixo faria a legenda listar "Priori"/"Posteriori"
             # sempre, mesmo quando so uma das duas foi selecionada, dando a falsa
             # impressao de que a outra ainda estava sendo desenhada no grafico.
-            _dist_colors = {"Priori": DRUM["text_secondary"], "Posteriori": DRUM["blue_primary"]}
+            # A priori usa tonalidade VERDE (pedido do usuario, para diferenciar
+            # visualmente do azul da posteriori e reforcar que o Estagio 1 e uma
+            # etapa distinta, so com opiniao de especialistas).
+            _dist_colors = {"Priori": DRUM["green_prior"], "Posteriori": DRUM["blue_primary"]}
             color_domain = [d for d in ["Priori", "Posteriori"] if d in show_dists]
             color_range = [_dist_colors[d] for d in color_domain]
             # Um UNICO grafico por ambiente (facet por Ambiente, xOffset agrupando
@@ -834,7 +897,10 @@ with tab_run:
             mime="text/plain",
         )
     else:
-        st.info("Configure os parâmetros nas abas anteriores e clique em **Executar análise**.")
+        st.info(
+            "Configure os parâmetros nas abas anteriores e clique em **① Estágio 1** "
+            "(para ver só a priori) ou **② Estágio 2** (priori + posteriori)."
+        )
 
 # --------------------------------------------------------------------------
 # Tab 4 — Manual

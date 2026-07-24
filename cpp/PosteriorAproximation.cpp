@@ -613,6 +613,62 @@ void PosteriorAproximation::PriorMetropolisSamplerJoint (int number_environments
 	_sizePriorJoint = i;
 }
 
+void PosteriorAproximation::PriorOnlyAnalysis (int number_environments, int samples, int samplesBurnIn, int intervals, double timeMission, int indexEnvironmentUse, double reliabilityQuantileEnvironmentUse, double reliabilityPrior[])
+{
+	// "Estagio 1" da interface: reproduz a parte da configuracao de
+	// MetropolisSamplerJoint (abaixo) que PriorMetropolisSamplerJoint
+	// realmente precisa para funcionar -- alocacao de prior->uAux/
+	// prior->counterTotalEnvironmentValue, calculo do fator de
+	// transformacao "c", da confiabilidade transformada "u" e dos
+	// parametros de escala "alpha" a partir da confiabilidade elicitada --
+	// SEM alocar as estruturas do lado da posteriori (_valuesPosteriorByEnv
+	// e companhia), que sao caras e nao servem para nada aqui.
+	double a, b, beta;
+
+	prior->uAux = new double [number_environments + 2];
+	prior->counterTotalEnvironmentValue = new double [number_environments + 2];
+	uPriorMean = new double [number_environments + 2];
+	u = new double [number_environments + 2];
+	X = new double [number_environments + 2];
+	Y = new double [number_environments + 2];
+
+	// valuesReduced e o buffer de trabalho de reducePrior/reduce, usado por
+	// computePriorParametersForEnv (chamada depois desta funcao); precisa
+	// estar alocado antes, do contrario reducePrior escreve em ponteiro
+	// invalido (o mesmo bug documentado acima em MetropolisSamplerJoint).
+	valuesReduced = new double*[intervals];
+	for (int i = 0; i < intervals; i++){
+		valuesReduced[i] = new double[2];
+	}
+	_intervals = intervals;
+
+	a = reliabilityPrior[0];
+	b = reliabilityPrior[number_environments - 1];
+
+	c = prior->computeTransformationFactor (a, b, timeMission);
+	u = prior->getTransformedReliability (number_environments, c, timeMission, reliabilityPrior);
+
+	alphaElicitated = prior->getScaleParametersElicitated (number_environments, c, indexEnvironmentUse, reliabilityQuantileEnvironmentUse, timeMission, u);
+	alpha = prior->getScaleParameters (number_environments, c, indexEnvironmentUse, reliabilityQuantileEnvironmentUse, timeMission, u);
+	beta = prior->getBeta();
+
+	X[0] = u[0];
+	prior->uAux[0] = u[0];
+	Y[0] = u[0];
+	prior->counterTotalEnvironmentValue[0] = u[0];
+	uPriorMean[0] = u[0];
+
+	X[number_environments + 1] = u[number_environments + 1];
+	prior->uAux[number_environments + 1] = u[number_environments + 1];
+	Y[number_environments + 1] = u[number_environments + 1];
+	uPriorMean[number_environments + 1] = u[number_environments + 1];
+	prior->counterTotalEnvironmentValue[number_environments + 1] = u[number_environments + 1];
+
+	srand (time(0)%1000);
+
+	PriorMetropolisSamplerJoint (number_environments, samples, samplesBurnIn, beta, alpha);
+}
+
 void PosteriorAproximation::MetropolisSamplerJoint (int samples, int samplesBurnIn, int intervals, int nSkip, int number_items, int number_steps, int number_environments, double betaWeibull, double timeMission,
  int indexEnvironmentUse, double reliabilityQuantileEnvironmentUse, double reliabilityPrior[], double failureTimes[], bool censoredData)
 {
