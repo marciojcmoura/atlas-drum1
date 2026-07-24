@@ -172,7 +172,12 @@ entre PDF, a densidade, e CDF, a probabilidade acumulada), <strong>Mostrar</stro
 está disponível) e <strong>Faixas do histograma</strong> (quantas faixas usar para agrupar a
 distribuição bruta do modelo em barras — menos faixas dão picos mais altos, mais faixas se
 aproximam da resolução bruta; ajuste para comparar com figuras de outras fontes, como o
-próprio artigo). Cada painel usa barras (verde = priori, azul = posteriori) em vez de linhas.</p>
+próprio artigo). Priori e posteriori são divididas nesse número de faixas cada uma dentro
+do seu próprio intervalo de confiabilidade (não de um eixo compartilhado) — como a
+posteriori normalmente ocupa uma faixa bem mais estreita que a priori (o teste reduz a
+incerteza), suas barras ficam mais finas, mas o número de barras visíveis é o mesmo para
+as duas. Quando ambas estão marcadas em "Mostrar", elas aparecem sobrepostas com
+transparência no mesmo painel (verde = priori, azul = posteriori) em vez de lado a lado.</p>
 <p>O botão <strong>"Baixar saída completa"</strong> exporta o resultado bruto (tabelas de
 densidade/CDF de taxa de falha e confiabilidade, priori e, se o Estágio 2 foi rodado,
 posteriori, para cada ambiente) em texto plano.</p>

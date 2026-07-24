@@ -799,27 +799,60 @@ with tab_run:
         st.caption(
             "A altura do pico do histograma depende do número de faixas: menos faixas "
             "acumulam mais massa de probabilidade por barra (pico mais alto), mais faixas "
-            "se aproximam da resolução bruta do modelo (pico mais baixo). Ajuste para "
-            "comparar com outras fontes."
+            "se aproximam da resolução bruta do modelo (pico mais baixo). Priori e "
+            "posteriori são divididas nesse número de faixas cada uma dentro do seu "
+            "próprio intervalo de confiabilidade — como a posteriori normalmente ocupa "
+            "uma faixa bem mais estreita (o teste reduz a incerteza), suas barras ficam "
+            "mais finas que as da priori, mesmo com o mesmo número de faixas."
         )
 
         value_col = "pdf" if value_type == "PDF" else "cdf"
         value_axis_title = "Densidade (PDF)" if value_type == "PDF" else "Probabilidade acumulada (CDF)"
 
-        chart_rows = []
+        # IMPORTANTE (pedido do usuario, 2026-07-24): priori e posteriori NAO
+        # compartilham mais a mesma grade de faixas. Antes, as duas usavam o
+        # mesmo bin fixo sobre [0,1] -- como a posteriori normalmente ocupa uma
+        # faixa de confiabilidade bem mais estreita que a priori (o MCMC reduz
+        # a incerteza ao incorporar os dados de teste), ela acabava so "usando"
+        # uma fracao das faixas configuradas (ex.: com 25 faixas configuradas,
+        # a posteriori do Ambiente 1 so preenchia ~7 delas, porque seus dados
+        # ocupam so ~25% do eixo 0-1). Agora cada (Ambiente, Distribuicao) e
+        # rebinado independentemente sobre o SEU PROPRIO intervalo [min, max]
+        # em exatamente n_bins faixas -- isso garante ~n_bins faixas visiveis
+        # para AMBAS, priori e posteriori, em todo ambiente, sem precisar de
+        # dois controles de faixas separados. O eixo X do grafico continua
+        # fixo em [0,1] (a POSICAO de cada faixa reflete o dado real); so a
+        # LARGURA da faixa passa a variar por serie/ambiente.
+        n_bins = int(n_bins)
         dist_key_map = {"Priori": "prior", "Posteriori": "posterior"}
+        chart_rows = []
         for env_idx in env_choices:
             for dist_label in show_dists:
                 dist_df = envs[env_idx].get(dist_key_map[dist_label], {}).get("reliability")
-                if dist_df is None:
+                if dist_df is None or dist_df.empty:
                     continue
-                for _, r in dist_df.iterrows():
+                vmin = float(dist_df["value"].min())
+                vmax = float(dist_df["value"].max())
+                span = (vmax - vmin) or 1e-9
+                step = span / n_bins
+                # indice da faixa de CADA ponto bruto dentro do intervalo proprio
+                # dessa serie (nao do eixo 0-1 inteiro) -- por isso o rebinning e
+                # feito aqui em Python/pandas, e nao com alt.Bin (que so sabe
+                # binar sobre um unico intervalo compartilhado por todo o campo).
+                bin_idx = ((dist_df["value"] - vmin) / step).clip(upper=n_bins - 1e-9).astype(int)
+                tmp = pd.DataFrame({"bin_idx": bin_idx, "v": dist_df[value_col]})
+                # Mesma regra de sempre: PDF soma (preserva massa total = 1),
+                # CDF usa o maximo (e cumulativa, nao somavel) por faixa.
+                agg = tmp.groupby("bin_idx")["v"].sum() if value_type == "PDF" else tmp.groupby("bin_idx")["v"].max()
+                for idx, val in agg.items():
+                    bin_left = vmin + idx * step
                     chart_rows.append(
                         {
                             "Ambiente": f"Ambiente {env_idx}",
-                            "Confiabilidade": r["value"],
-                            "Valor": r[value_col],
                             "Distribuição": dist_label,
+                            "bin_left": bin_left,
+                            "bin_right": bin_left + step,
+                            "Valor": float(val),
                         }
                     )
 
@@ -827,6 +860,7 @@ with tab_run:
             st.info("Selecione ao menos um ambiente e uma distribuição para ver o gráfico.")
         elif chart_rows:
             chart_df = pd.DataFrame(chart_rows)
+            chart_df["y0"] = 0.0
             # Escala de cor construida so com as distribuicoes REALMENTE marcadas em
             # "Mostrar" -- um dominio fixo faria a legenda listar "Priori"/"Posteriori"
             # sempre, mesmo quando so uma das duas foi selecionada, dando a falsa
@@ -837,41 +871,35 @@ with tab_run:
             _dist_colors = {"Priori": DRUM["green_prior"], "Posteriori": DRUM["blue_primary"]}
             color_domain = [d for d in ["Priori", "Posteriori"] if d in show_dists]
             color_range = [_dist_colors[d] for d in color_domain]
-            # Um UNICO grafico por ambiente (facet por Ambiente, xOffset agrupando
-            # Priori/Posteriori lado a lado dentro do mesmo painel, Y compartilhado
-            # por ambiente) -- este e o design estavel, testado e aprovado; NAO usar
-            # paineis separados por distribuicao (row+column facet quebrava a
-            # renderizacao das barras no componente Vega-Lite do Streamlit, e mesmo
-            # depois de corrigido o usuario preferiu um unico grafico por ambiente
-            # em vez de dois paineis lado a lado).
+            # Um UNICO grafico por ambiente (facet por Ambiente) -- design estavel,
+            # testado e aprovado; NAO usar paineis separados por distribuicao
+            # (row+column facet ja quebrou a renderizacao no componente Vega-Lite
+            # do Streamlit numa rodada anterior).
             #
-            # IMPORTANTE (bug corrigido): a tabela bruta do modelo tem ~200 pontos de
-            # "pdf" que somam exatamente 1 por construcao (cada ponto ja e uma massa
-            # de probabilidade normalizada, ver PosteriorAproximation.cpp/reducePrior).
-            # Ao reagrupar esses ~200 pontos em n_bins faixas para o histograma, é
-            # preciso SOMAR (nao tirar a media) os pontos de cada faixa nova -- do
-            # contrario a soma das barras exibidas deixa de ser 1. A CDF, por ser
-            # cumulativa, usa o MAXIMO de cada faixa, nao a soma.
-            agg_fn = "sum" if value_type == "PDF" else "max"
+            # Priori e posteriori agora tem faixas de LARGURA DIFERENTE (ver bloco
+            # acima), entao um xOffset lado-a-lado deixaria de fazer sentido visual
+            # (as barras nao teriam a mesma largura para "encaixar" uma do lado da
+            # outra). Em vez disso, as duas sao desenhadas SOBREPOSTAS no mesmo
+            # eixo X com opacidade parcial (mark_bar(opacity=0.75)) -- onde priori e
+            # posteriori ocupam a mesma regiao de confiabilidade, as cores se
+            # misturam visualmente; onde nao, cada uma aparece na sua cor pura.
+            #
+            # Encoding x/x2 (em vez de bin=alt.Bin) porque cada faixa ja foi
+            # calculada manualmente acima com seus proprios limites (bin_left/
+            # bin_right); alt.Bin so sabe binar declarativamente sobre UM unico
+            # intervalo compartilhado por todo o campo, o que e exatamente o que
+            # NAO queremos mais aqui. Barra completa exige y=0 (coluna auxiliar
+            # "y0") e y2=Valor -- especificar so x/x2 sem y2 faz o Vega-Lite tratar
+            # a marca como um segmento fino tipo Gantt (achatado), nao uma barra
+            # cheia do zero ate o valor (confirmado visualmente com vl-convert).
             chart = (
                 alt.Chart(chart_df)
-                .mark_bar()
+                .mark_bar(opacity=0.75)
                 .encode(
-                    x=alt.X(
-                        "Confiabilidade:Q",
-                        # "step" (nao "maxbins") garante EXATAMENTE n_bins faixas de
-                        # largura igual sobre [0,1] -- maxbins e so um teto aproximado
-                        # que o Vega-Lite "arredonda" para numeros redondos, o que
-                        # tornaria o controle de granularidade acima imprevisivel.
-                        bin=alt.Bin(extent=[0, 1], step=1.0 / int(n_bins)),
-                        title="Confiabilidade no tempo de missão",
-                        scale=alt.Scale(domain=[0, 1]),
-                    ),
-                    xOffset=alt.XOffset("Distribuição:N", sort=color_domain),
-                    # Y dinamico (auto-scale por painel/ambiente, via resolve_scale
-                    # abaixo). Valores exibidos como frequencia relativa (0 a 1), sem
-                    # formatacao percentual.
-                    y=alt.Y(f"{agg_fn}(Valor):Q", title=value_axis_title),
+                    x=alt.X("bin_left:Q", title="Confiabilidade no tempo de missão", scale=alt.Scale(domain=[0, 1])),
+                    x2="bin_right:Q",
+                    y=alt.Y("y0:Q", title=value_axis_title),
+                    y2="Valor:Q",
                     color=alt.Color(
                         "Distribuição:N",
                         scale=alt.Scale(domain=color_domain, range=color_range),
