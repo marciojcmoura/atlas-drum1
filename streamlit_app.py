@@ -769,7 +769,10 @@ with tab_run:
         # remove da seleção salva qualquer ambiente que não exista mais (ex.: K mudou entre execuções)
         st.session_state["result_envs_select"] = [e for e in st.session_state["result_envs_select"] if e in all_envs] or all_envs[:1]
         st.session_state.setdefault("result_value_type", "PDF")
-        st.session_state.setdefault("result_n_bins", 50)
+        # Padrao 25 faixas: valor que mais se aproximou visual/numericamente das
+        # Figuras 3(A)/5(A) do artigo (Van Dorp & Mazzuchi, 2004) na validacao
+        # feita em 2026-07-24 -- ver memoria "alt-software-validation".
+        st.session_state.setdefault("result_n_bins", 25)
 
         # No Estagio 1 (so priori), a UNICA opcao disponivel e "Priori" -- a
         # posteriori nem foi calculada, entao nao faz sentido oferece-la.
